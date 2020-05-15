@@ -1,0 +1,355 @@
+---
+title: "MachineLearningProject"
+author: "Jamie Hobbs"
+date: "4/30/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rsample)      #data spling
+library(randomForest) # basic implementation
+library(ranger)       # a faster implementation of randomForest
+library(caret)        # an aggregator package for performing many machine learning models
+library(h2o) 
+library(tidyverse)
+library(dplyr)
+library(devtools)
+library(ggplot2)
+library(RColorBrewer)
+library(car)
+library(ISLR)
+require(tree)
+library(e1071)
+
+gbm <- read.csv('C:/Users/count/OneDrive/Documents/Escuela/MachineLearning/GBMdata.csv')
+#gbm <- read.csv('/home/jhobbs/Documents/GBMdata.csv')
+#View(gbm)
+
+```
+
+```{r}
+cols <- c("ID","Life")
+gbm <- gbm[,!(names(gbm) %in% cols)]
+gbmNoFact <- gbm
+gbm[,c(5:504)] <- lapply(gbm[,5:504],factor)
+str(gbm)
+
+unique(gbm$Gender)
+unique(gbm$Race)
+
+fit <- lm(Days.Till.Death~Age.at.Diagnosis + Race+Gender,data=gbm)
+summary(fit)
+VS <- step(fit)
+VS$anova
+max(gbm$Days.Till.Death[gbm$Gender =="Male" ])
+
+fit.Step <- lm(Days.Till.Death~Age.at.Diagnosis+Gender, data=gbm)
+
+summary(fit.Step)
+
+mycol <- brewer.pal(8, "Accent")[2:1]
+
+ggplot(data=gbm, aes(Age.at.Diagnosis, Days.Till.Death, col=Gender)) +   
+  geom_point() +   
+  geom_smooth(method="lm") +
+  ggtitle("Predicting Survival Based on Age of Diagnosis & Gender") + 
+  ggplot2::ylab("Days of Survival") + ggplot2 ::xlab("Age at Diagnosis")+
+  theme_minimal() +
+  scale_color_manual(values=mycol) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  
+
+```
+
+
+```{r}
+#Totals per mutations
+geneTotals <- as.data.frame(apply(gbm[,5:504],2,sum))
+
+#Mutation count by gene for high survivors
+highSurvivor <- gbmNoFact[which(gbmNoFact$Days.Till.Death>377),]
+Totals <- apply(highSurvivor[,5:504],2,sum)
+hghsTotals <- enframe(Totals, name="Gene", value="Sums")
+hghsTotals <- hghsTotals[order(-hghsTotals$Sums),]
+
+#mutation count by gene for low survivors
+lowSurvivor <- gbmNoFact[which(gbmNoFact$Days.Till.Death<450),]
+Totals <- apply(lowSurvivor[,5:504],2,sum)
+hglsTotals <- enframe(Totals, name="Gene",value = "Sums")
+hglsTotals <- hglsTotals[order(-hglsTotals$Sums),]
+
+```
+
+```{r}
+
+
+#fit with all personal info and combo if top 10 mutations for high and low survivors
+topGenes <- lm(data=gbm, Days.Till.Death~Age.at.Diagnosis+Gender+Race+TTN+PTEN+TP53+EGFR+FLG+MUC16+RYR2+SPTA1+OBSCN+PKHD1+NF1)
+summary(topGenes)
+vif(topGenes)
+plot(topGenes)
+
+#Correct non-linearity 
+topGenes.log <- lm(data=gbm, log(Days.Till.Death)~Age.at.Diagnosis+Gender+Race+TTN+PTEN+TP53+EGFR+FLG+MUC16+RYR2+SPTA1+OBSCN+PKHD1+NF1)
+summary(topGenes.log)
+
+
+topGenes2 <- lm(data=gbm, Days.Till.Death~Age.at.Diagnosis+Gender+TTN+PTEN+TP53+EGFR+FLG+MUC16+RYR2+SPTA1+OBSCN+PKHD1+NF1)
+vif(topGenes2)
+summary(topGenes2)
+
+nextTop <- lm(data=gbm, Days.Till.Death~Age.at.Diagnosis+Gender+Race+NF1+USH2A+RB1+COL6A3+MUC17+LAMA1+TRRAP+GRIN2A+RIMS2+DNAH17+PIK3CA+SPTA1+SYNE1+PIK3R1+OBSCN+LRP2+DNAH2+FLG2+PCLO)
+vif(nextTop)
+summary(nextTop)
+
+nextTop2 <- lm(data=gbm, Days.Till.Death~Age.at.Diagnosis+Gender+NF1+USH2A+RB1+COL6A3+MUC17+LAMA1+TRRAP+GRIN2A+RIMS2+DNAH17+PIK3CA+SPTA1+SYNE1+PIK3R1+OBSCN+LRP2+DNAH2+FLG2+PCLO)
+vif(nextTop2)
+summary(nextTop2)
+
+
+```
+
+
+```{r}
+gbm2 <- gbm
+gbm2$Days.Till.Death <- ifelse(gbm2$Days.Till.Death >= 377, 1, 0)
+
+TrueProp <- gbm2 %>%
+  count(Days.Till.Death) %>%
+  mutate(n=n/300)
+
+#Fit based on new average grade variable regressed on same 9 variables from initFit
+trueFit <- glm(Days.Till.Death ~ Age.at.Diagnosis+Gender+Race+TTN+PTEN+TP53+EGFR+FLG+MUC16+RYR2+SPTA1+OBSCN+PKHD1+NF1, family=binomial, data=gbm2)
+coef(trueFit)
+summary(trueFit)
+vif(trueFit)
+
+
+trueFit2 <- glm(Days.Till.Death ~ Age.at.Diagnosis+Gender+Race+NF1+USH2A+RB1+COL6A3+MUC17+LAMA1+TRRAP+GRIN2A+RIMS2+DNAH17+PIK3CA+SPTA1+SYNE1+PIK3R1+OBSCN+LRP2+DNAH2+FLG2+PCLO, family=binomial, data=gbm2)
+coef(trueFit2)
+summary(trueFit2)
+vif(trueFit2)
+
+trueFit3 <- glm(Days.Till.Death ~ Age.at.Diagnosis+Gender+NF1+USH2A+RB1+COL6A3+MUC17+LAMA1+TRRAP+GRIN2A+RIMS2+DNAH17+PIK3CA+SPTA1+SYNE1+PIK3R1+OBSCN+LRP2+DNAH2+FLG2+PCLO, family=binomial, data=gbm2)
+coef(trueFit3)
+summary(trueFit3)
+vif(trueFit3)
+
+
+```
+
+```{r}
+
+gbmModel <- gbm %>% select(Days.Till.Death, Gender, Race,Age.at.Diagnosis, TTN,PTEN, TP53, EGFR)
+str(gbmModel)
+#correlation between numeric variables
+#small <- gbmModel[,c(1,4,5,6,7)]
+#cor(small)
+
+
+gbmModel2 <- gbm %>% select(Days.Till.Death, Gender,Age.at.Diagnosis, TTN,TP53) 
+gbmModel2.reg <- gbm %>% select(Days.Till.Death, Gender, Race,Age.at.Diagnosis, TTN,TP53)
+
+ggplot(gbm,aes(x=Age.at.Diagnosis, y=Days.Till.Death)) +
+  geom_point()
+
+gbm2 <- gbm
+
+gbm2$Days.Till.Death <- factor(ifelse(gbm2$Days.Till.Death>=377, "Above", "Below"))
+#str(gbm2)
+TrueProp <- gbm2 %>%  count(Days.Till.Death) 
+TrueProp
+
+#Regression of Days onto gender, race, age, 4x Top genes among low(<450 days) and high(>450 days) survivors
+fit <- lm(Days.Till.Death ~ ., data=gbmModel)
+#Variable selection
+step(fit)
+
+fit2 <- lm(Days.Till.Death ~ Gender +Age.at.Diagnosis+TTN+TP53, data=gbmModel)
+summary(fit2)
+plot(fit2, which=c(1,2))
+
+fit2.log <- lm(log(Days.Till.Death) ~ Gender +Age.at.Diagnosis+TTN+TP53, data=gbmModel)
+summary(fit2.log)
+plot(fit2.log, which=c(1,2))
+
+fit3 <- lm(Days.Till.Death~TTN+PTEN+TP53+EGFR, data=gbmModel)
+summary(fit3)
+step(fit3)
+
+fit4 <- lm(Days.Till.Death~TTN+TP53, data=gbmModel)
+summary(fit4)
+
+fit5 <- lm(Days.Till.Death~., data=gbm)
+summary(fit5)
+
+```
+On average, men live 175 days less than females after diagnosis of a glioblastoma.   
+On average, asian life 3 days more and caucasians live 59 days longer than african american after diagnosis of a glioblastome.  
+For every year increase in age, the average number of days of survival post diagnosis decrease by 10 days.  
+
+
+```{r}
+#Random Forest 
+
+gbmtop <- gbm2 %>%  select(Days.Till.Death, Age.at.Diagnosis, Gender, TTN, PTEN, TP53, EGFR, FLG, MUC16, RYR2, SPTA1, OBSCN,PKHD1,NF1)
+
+gbmrefined <- gbm2 %>%  select(Days.Till.Death, Age.at.Diagnosis, Gender, NF1, USH2A, RB1, COL6A3,MUC17,LAMA1, TRRAP, GRIN2A, RIMS2, DNAH17, PIK3CA, SPTA1, SYNE1, PIK3R1, OBSCN, LRP2, DNAH2, FLG2, PCLO)
+
+set.seed(12)
+brain_split <- initial_split(gbmModel2, prop = .7)
+brain_train <- training(brain_split)
+brain_test  <- testing(brain_split)
+
+brain.reg_split <- initial_split(gbmModel2.reg, prop = .7)
+brain.reg_train <- training(brain.reg_split)
+brain.reg_test  <- testing(brain.reg_split)
+
+brain.all_split <- initial_split(gbm, prop = .7)
+brain.all_train <- training(brain.all_split)
+brain.all_test  <- testing(brain.all_split)
+
+brain.new_split <- initial_split(gbmrefined, prop = .7)
+brain.new_train <- training(brain.new_split)
+brain.new_test  <- testing(brain.new_split)
+
+brain.new10_split <- initial_split(gbmtop, prop = .7)
+brain.new10_train <- training(brain.new10_split)
+brain.new10_test  <- testing(brain.new10_split)
+
+
+rf1 <- randomForest(formula = Days.Till.Death ~ ., data = brain_train)
+rf1
+plot(rf1)
+
+
+rf2 <- randomForest(formula = Days.Till.Death ~ ., data = brain.reg_train)
+rf2
+plot(rf2)
+sqrt(rf2$mse[which.min(rf2$mse)])
+
+rf3 <- randomForest(formula = Days.Till.Death ~ ., data = brain.all_train)
+rf3
+plot(rf3)
+sqrt(rf3$mse[which.min(rf3$mse)])
+
+
+rf4 <- randomForest(formula = Days.Till.Death~., data=brain.new10_train, nodesize=1)
+rf4
+plot(rf4)
+
+rf5 <- randomForest(formula = Days.Till.Death~., data=brain.new_train, nodesize=1, mtry=5)
+rf5
+plot(rf5)
+
+rf6 <- randomForest(formula = Days.Till.Death~., data=brain.new_train, nodesize=1, mtry=4, ntrees=1000)
+rf6
+plot(rf6)
+
+rf7 <- randomForest(formula = Days.Till.Death~., data=brain.new_train, nodesize=1, mtry=2)
+rf7
+plot(rf7)
+
+```
+
+```{r}
+
+trControl <- trainControl(method="cv",number = 10, search = "grid")
+rf_default <- train(Days.Till.Death~.,
+    data = brain.new_train,
+    method = "rf",
+    metric = "Accuracy",
+    trControl = trControl)
+# Print the results
+print(rf_default)
+
+trControl2 <- trainControl(method="cv",number = 10, search = "grid")
+rf_default2 <- train(Days.Till.Death~.,
+    data = brain.new10_train,
+    method = "rf",
+    metric = "Accuracy",
+    trControl = trControl2)
+# Print the results
+print(rf_default2)
+
+```
+```{r}
+tuneGrid <- expand.grid(.mtry = c(1: 10))
+rf_mtry <- train(Days.Till.Death~.,
+    data = brain.new_train,
+    method = "rf",
+    metric = "Accuracy",
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    nodesize = 14,
+    ntree = 500)
+print(rf_mtry)
+
+```
+
+```{r}
+best_mtry <- rf_mtry$bestTune$mtry 
+store_maxnode <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry)
+for (maxnodes in c(5: 15)) {
+    set.seed(12)
+    rf_maxnode <- train(Days.Till.Death~.,
+        data = brain.new_train,
+        method = "rf",
+        metric = "Accuracy",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        nodesize = 14,
+        maxnodes = maxnodes,
+        ntree = 500)
+    current_iteration <- toString(maxnodes)
+    store_maxnode[[current_iteration]] <- rf_maxnode
+}
+results_mtry <- resamples(store_maxnode)
+summary(results_mtry)
+
+```
+
+```{r}
+store_maxtrees <- list()
+for (ntree in c(250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000)) {
+    set.seed(12)
+    rf_maxtrees <- train(Days.Till.Death~.,
+        data = brain.new_train,
+        method = "rf",
+        metric = "Accuracy",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        nodesize = 14,
+        maxnodes = 5,
+        ntree = ntree)
+    key <- toString(ntree)
+    store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+summary(results_tree)
+
+```
+
+```{r}
+fit_rf <- train(Days.Till.Death~.,
+    brain.new_train,
+    method = "rf",
+    metric = "Accuracy",
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    nodesize = 14,
+    ntree = 550,
+    maxnodes = 5)
+
+prediction <-predict(fit_rf, brain.new_test)
+confusionMatrix(prediction, brain.new_test$Days.Till.Death)
+
+
+```
